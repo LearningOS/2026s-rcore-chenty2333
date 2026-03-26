@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -71,6 +72,42 @@ lazy_static! {
 }
 
 impl TaskManager {
+    /// Map the virtual_page to physical_page by create a new area.
+    pub fn insert_framed_area_current(
+        &self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        permission: MapPermission
+    ) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let task = &mut inner.tasks[current];
+
+        if task.memory_set.check_overlap(start_va, end_va) {
+            return -1
+        }
+
+        task.memory_set.insert_framed_area(start_va, end_va, permission);
+        0
+    }
+    /// Unmap the virtual_address by use uninsert_framed_area in MemorySet.
+    pub fn uninsert_framed_area_current(
+        &self,
+        start_va: VirtAddr,
+        end_va: VirtAddr
+    ) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let task = &mut inner.tasks[current];
+
+        let start_vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        if task.memory_set.check_has_unmapped(start_vpn, end_vpn) {
+            return  -1;
+        }
+
+        task.memory_set.uninsert_framed_area(start_vpn, end_vpn)
+    }
     /// Run the first task in task list.
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
@@ -201,4 +238,18 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Add the count of current syscall.
+pub fn add_syscall_count(sys_call: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].syscall_count[sys_call] += 1;
+}
+
+/// Query the count of current syscall.
+pub fn query_syscall_count(sys_call: usize) -> isize {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].syscall_count[sys_call] as isize
 }

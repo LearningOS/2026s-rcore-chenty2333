@@ -40,6 +40,23 @@ pub struct MemorySet {
 }
 
 impl MemorySet {
+    /// Check if the range [start, end) overlaps with the existing areas.
+    pub fn check_overlap(
+        &self,
+        start_vpn: VirtAddr,
+        end_vpn: VirtAddr,
+    ) -> bool {
+        // the end) of the area.
+        let start_va = start_vpn.floor();
+        // the [start of the area.
+        let end_va = end_vpn.ceil();
+        self.areas.iter().any(|range| {
+            let area_end = range.vpn_range.get_end();
+            let area_start = range.vpn_range.get_start();
+
+            area_end > start_va && area_start < end_va
+        })
+    }
     /// Create a new empty `MemorySet`.
     pub fn new_bare() -> Self {
         Self {
@@ -63,6 +80,37 @@ impl MemorySet {
             None,
         );
     }
+    /// To undo the insert_framed_area
+    pub fn uninsert_framed_area(
+        &mut self,
+        start_vpn: VirtPageNum,
+        end_vpn: VirtPageNum,
+    ) -> isize {
+        if let Some(index) = self
+            .areas
+            .iter()
+            .position(|area| area.vpn_range.get_start() == start_vpn) {
+                if self.areas[index].vpn_range.get_end() != end_vpn {
+                    return -1;
+                }
+                self.areas[index].unmap(&mut self.page_table);
+                self.areas.remove(index);
+                return 0;
+            }
+
+        -1
+    }
+    /// To check the [start, start + len) is unmaped or invalid.
+    pub fn check_has_unmapped(
+        &self,
+        start_vpn: VirtPageNum,
+        end_vpn: VirtPageNum,
+    ) -> bool {
+            VPNRange::new(start_vpn, end_vpn).into_iter().any(|vpn| {
+                self.translate(vpn).map_or(true, |pte| !pte.is_valid())
+            })
+    }
+    /// push
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
         if let Some(data) = data {
