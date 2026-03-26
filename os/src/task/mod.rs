@@ -54,6 +54,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            task_syscall: [0; 512],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -168,4 +169,16 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Add the times of the id syscall.
+pub fn add_task_syscall(id: usize)  {
+    let current_task = TASK_MANAGER.inner.exclusive_access().current_task;
+    TASK_MANAGER.inner.exclusive_access().tasks[current_task].task_syscall[id] += 1;
+}
+
+/// Query how many times the id of syscall had been used.
+pub fn query_task_syscall(id: usize) -> u32 {
+    let current_task = TASK_MANAGER.inner.exclusive_access().current_task;
+    TASK_MANAGER.inner.exclusive_access().tasks[current_task].task_syscall[id]
 }
